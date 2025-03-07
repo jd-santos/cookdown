@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cookdown"
+version = "0.1.0"
+description = "Convert Crouton recipe (.crumb) files to Obsidian-compatible markdown format"
+readme = "README.md"
+requires-python = ">=3.6"
+license = {text = "MIT"}
+authors = [
+    {name = "Cookdown Developers"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+# All dependencies in the scripts are from the standard library,
+# so no external packages are required!
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "black>=23.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+crumb-convert = "cookdown.convert:main"
+crumb-batch = "cookdown.batch:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["cookdown"]
+
+[tool.black]
+line-length = 88
+target-version = ["py36"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+addopts = "--cov=src --cov-report=term --cov-report=html"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "setup.py", ".venv/*"]
+
+[tool.mypy]
+python_version = "3.6"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true 

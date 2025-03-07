@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Environment and dependencies
+.venv/
+venv/
+.env/
+env/
+*.egg-info/
+
+# Build and distribution
+dist/
+build/
+
+# Project specific
+output/
+data/output/
+*/images/
+
+# System and editor files
+.DS_Store
+*.swp
+.idea/
+.vscode/ 
