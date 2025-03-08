@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cookdown"
 version = "0.1.0"
-description = "Convert Crouton recipe (.crumb) files to Obsidian-compatible markdown format"
+description = "Convert recipe files from various formats to Obsidian-compatible markdown format"
 readme = "README.md"
 requires-python = ">=3.6"
 license = {text = "MIT"}
@@ -30,6 +30,8 @@ dev = [
 ]
 
 [project.scripts]
+recipe-convert = "cookdown.convert:main"
+recipe-batch = "cookdown.batch:main"
 crumb-convert = "cookdown.convert:main"
 crumb-batch = "cookdown.batch:main"
 

@@ -1,15 +1,19 @@
-# Crouton Recipe Converter
+# Cookdown Recipe Converter
 
-This tool converts Crouton recipe (.crumb) files to Obsidian-compatible markdown format.
+This tool converts recipe files from various formats to Obsidian-compatible markdown format.
 
 ## Features
 
-- Converts Crouton's .crumb JSON files to Obsidian markdown with YAML frontmatter
+- Converts various recipe formats to Obsidian markdown with YAML frontmatter
+- Currently supports:
+  - Crouton's .crumb JSON files
+  - (More formats coming soon)
 - Preserves all recipe details including ingredients, steps, and nutritional information
 - Extracts and saves images from base64-encoded data
 - Maintains original formatting and organization of recipes
 - Handles recipe sections and formatting
 - Supports batch processing with parallel execution
+- Extensible architecture for adding support for more recipe formats
 
 ## Prerequisites
 
@@ -20,17 +24,22 @@ This tool converts Crouton recipe (.crumb) files to Obsidian-compatible markdown
 ```
 cookdown/
 ├── src/
-│   └── cookdown/       # Main package
+│   └── cookdown/            # Main package
 │       ├── __init__.py
-│       ├── convert.py  # Single file converter
-│       └── batch.py    # Batch processor
-├── tests/             # Test suite
-├── data/              # Data directories
-│   ├── input/         # Place .crumb files here
-│   └── output/        # Converted files go here
-├── examples/          # Example templates
-├── pyproject.toml     # Project configuration
-└── README.md          # This file
+│       ├── parsers/         # Format-specific parsers
+│       │   ├── __init__.py  # Parser registry
+│       │   ├── base.py      # Base parser interface
+│       │   └── crumb.py     # Crouton parser
+│       ├── formatter.py     # Formatting logic
+│       ├── convert.py       # Single file converter
+│       └── batch.py         # Batch processor
+├── tests/                   # Test suite
+├── data/                    # Data directories
+│   ├── input/               # Place recipe files here
+│   └── output/              # Converted files go here
+├── examples/                # Example templates
+├── pyproject.toml           # Project configuration
+└── README.md                # This file
 ```
 
 ## Installation
@@ -52,10 +61,10 @@ Once installed, you can use the command-line tools:
 
 ```bash
 # Convert a single file
-crumb-convert -f "data/input/recipe.crumb"
+recipe-convert -f "data/input/recipe.crumb"
 
 # Batch convert all recipes
-crumb-batch
+recipe-batch
 ```
 
 ## Usage Without Installation
@@ -75,46 +84,140 @@ python -m cookdown.batch
 ### Single File Conversion
 
 ```bash
-crumb-convert [-h] [-i INPUT] [-o OUTPUT] [-r] [-f FILE]
+recipe-convert [-h] [-i INPUT] [-o OUTPUT] [-r] [-f FILE] [-l]
 ```
 
 Arguments:
 - `-h, --help`: Show help message
-- `-i, --input`: Input directory containing .crumb files (defaults to 'data/input' subdirectory)
+- `-i, --input`: Input directory containing recipe files (defaults to 'data/input' subdirectory)
 - `-o, --output`: Output directory for markdown files (defaults to 'data/output' subdirectory)
-- `-r, --recursive`: Search recursively for .crumb files in input directory
-- `-f, --file`: Process a single .crumb file instead of a directory
+- `-r, --recursive`: Search recursively for recipe files in input directory
+- `-f, --file`: Process a single recipe file
+- `-l, --list-formats`: List supported file formats
 
 ### Batch Conversion
 
 ```bash
-crumb-batch [-h] [-i INPUT] [-o OUTPUT] [-r] [-p PARALLEL] [-s]
+recipe-batch [-h] [-i INPUT] [-o OUTPUT] [-r] [-p PARALLEL] [-s] [-e EXTENSIONS [EXTENSIONS ...]] [-l]
 ```
 
 Arguments:
 - `-h, --help`: Show help message
-- `-i, --input`: Input directory containing .crumb files (defaults to 'data/input' subdirectory)
+- `-i, --input`: Input directory containing recipe files (defaults to 'data/input' subdirectory)
 - `-o, --output`: Output directory for markdown files (defaults to 'data/output' subdirectory)
-- `-r, --recursive`: Search recursively for .crumb files in input directory
+- `-r, --recursive`: Search recursively for recipe files in input directory
 - `-p, --parallel`: Maximum number of parallel conversions (default is 4)
 - `-s, --subprocess`: Use subprocess to call the converter script instead of direct function call
+- `-e, --extensions`: List of file extensions to process (default: all supported extensions)
+- `-l, --list-formats`: List supported file formats
 
 ## Examples
 
-Process all .crumb files in the input directory:
+Process all recipe files in the input directory:
 ```bash
-crumb-batch
+recipe-batch
 ```
 
 Process files in a custom directory recursively with higher parallelism:
 ```bash
-crumb-batch -i /path/to/crumb_files -r -p 8
+recipe-batch -i /path/to/recipe_files -r -p 8
 ```
 
 Convert a single file with specific output location:
 ```bash
-crumb-convert -f data/input/recipe.crumb -o /path/to/obsidian/recipes
+recipe-convert -f data/input/recipe.crumb -o /path/to/obsidian/recipes
 ```
+
+List supported formats:
+```bash
+recipe-convert -l
+```
+
+## Adding Support for New Formats
+
+Cookdown uses a modular architecture that makes it easy to add support for new recipe formats:
+
+1. Create a new parser in the `src/cookdown/parsers/` directory (e.g., `paprika.py` for .paprika files)
+2. Implement the `RecipeParser` interface defined in `base.py`
+3. Register your parser with the appropriate file extension using the `register_parser` function
+
+See the `crumb.py` parser for a complete example.
+
+## How It Works
+
+The Cookdown tool processes recipe files through a pipeline of operations:
+
+1. **Input Detection** (`convert.py`): 
+   - The `convert_recipe_file()` function examines the file extension of the input recipe file (e.g., `.crumb`).
+   - Calls `RecipeParser.get_file_extension()` to extract the extension.
+
+2. **Parser Selection** (`parsers/__init__.py`): 
+   - The `get_parser_for_extension()` function selects the appropriate parser class from the registry.
+   - The parser registry (`_PARSERS` dictionary) maps file extensions to parser classes.
+   - Each parser is registered using the `register_parser()` function when the module is imported.
+
+3. **Parsing** (`parsers/crumb.py` and other format-specific parsers): 
+   - The selected parser's `parse_file()` method reads the input file.
+   - Parser extracts structured data using format-specific methods:
+     - `get_recipe_name()`: Extracts the recipe title
+     - `get_ingredients()`: Extracts and normalizes the ingredients list
+     - `get_instructions()`: Extracts and normalizes cooking steps
+     - `get_images()`: Extracts image data
+     - `get_metadata()`: Extracts additional recipe metadata
+   - All data is normalized to a common structure regardless of input format.
+
+4. **Formatting** (`formatter.py`): 
+   - The `convert_to_markdown()` function orchestrates the conversion process.
+   - Helper functions process each part of the recipe:
+     - `format_ingredients()`: Converts normalized ingredient data to text
+     - `format_instructions()`: Structures the cooking steps into markdown
+   - YAML frontmatter is generated from recipe metadata.
+
+5. **Image Processing** (`formatter.py`):
+   - The `save_image()` function extracts and decodes images from the parsed data.
+   - Images are saved to the output directory's `images` subdirectory.
+   - Image references are added to the markdown frontmatter.
+
+6. **Output Generation** (`formatter.py`):
+   - Final markdown content is assembled by the `convert_to_markdown()` function.
+   - The markdown file is written to the output directory with the recipe name.
+
+To add support for a new format, you only need to implement a new parser class that follows the `RecipeParser` interface - the rest of the pipeline remains unchanged.
+
+### Data Flow Diagram
+
+```
+Input Recipe File (.crumb, .paprika, etc.)
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ Parser Registry                     │
+│ (get_parser_for_extension)          │──► Select parser based on extension
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ Format-specific Parser              │
+│ (CrumbParser.parse_file, etc.)      │──► Extract & normalize recipe data
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ Formatter                           │
+│ (format_ingredients, instructions)  │──► Convert to Markdown with YAML
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ Image Processor                     │
+│ (save_image)                        │──► Extract and save images
+└─────────────────────────────────────┘
+         │
+         ▼
+Output Markdown File + Images
+```
+
+For batch processing, the `batch.py` module provides parallel processing capabilities through the `batch_convert()` function, which distributes conversion tasks across multiple threads for efficiency.
 
 ## Testing
 
@@ -153,7 +256,7 @@ The conversion creates:
 
 ## Handling Images
 
-The script extracts and decodes base64-encoded images from the .crumb files. For truncated base64 strings (as might appear in conversation contexts), the script will skip these images with a warning message.
+The script extracts and decodes images from the recipe files. For truncated base64 strings (as might appear in conversation contexts), the script will skip these images with a warning message.
 
 ## Customization
 

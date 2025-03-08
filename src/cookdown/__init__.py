@@ -1,7 +1,8 @@
 """
-Cookdown - Convert Crouton recipe (.crumb) files to Obsidian-compatible markdown.
+Cookdown - Convert recipe files from various formats to Obsidian-compatible markdown.
 
-This package provides tools to convert Crouton's .crumb JSON files to a 
+This package provides tools to convert recipe files from different formats 
+(such as Crouton's .crumb, Paprika's .paprika, etc.) to a 
 mixed YAML/markdown format compatible with Obsidian.
 """
 

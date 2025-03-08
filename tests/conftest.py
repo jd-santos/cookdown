@@ -1,13 +1,19 @@
 """
-Pytest configuration file for test fixtures and test data setup.
+Configuration file for pytest.
 
-This file contains fixtures that can be shared across multiple test files.
+This file sets up the test environment and adds the src directory to the Python path.
 """
 
 import os
+import sys
 import json
+import base64
 import pytest
 from pathlib import Path
+
+# Add the src directory to the Python path
+src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, src_dir)
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """
-Tests for the batch_convert.py script.
+Tests for the batch conversion functionality.
 
-These tests verify that the script correctly processes multiple .crumb files
+These tests verify that the system correctly processes multiple recipe files
 in batch mode, with proper parallelization and error handling.
 """
 
@@ -10,22 +10,25 @@ import json
 import shutil
 import tempfile
 import unittest
+import subprocess
 from unittest import mock
 from pathlib import Path
 
 import pytest
 
-import batch_convert
+from cookdown import batch
+from cookdown.parsers import get_supported_extensions
 
 
 @pytest.fixture
 def mock_recipe_directory(tmp_path):
-    """Create a directory with multiple mock recipe files for testing."""
+    """Create a mock directory with multiple recipe files."""
     input_dir = tmp_path / "input"
     input_dir.mkdir()
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
     
-    # Create three sample recipes
-    recipes = []
+    # Create multiple recipe files
     for i in range(3):
         recipe = {
             "name": f"Test Recipe {i+1}",
@@ -33,7 +36,7 @@ def mock_recipe_directory(tmp_path):
                 {
                     "order": 0,
                     "ingredient": {"name": f"Ingredient {i+1}"},
-                    "quantity": {"amount": i+1, "quantityType": "cup"}
+                    "quantity": {"amount": 1, "quantityType": "cup"}
                 }
             ],
             "steps": [
@@ -52,37 +55,37 @@ def mock_recipe_directory(tmp_path):
         }
         
         recipe_path = input_dir / f"recipe_{i+1}.crumb"
-        recipe_path.write_text(json.dumps(recipe))
-        recipes.append({"path": recipe_path, "content": recipe})
+        with open(recipe_path, "w") as f:
+            json.dump(recipe, f)
     
     return {
-        "path": input_dir,
-        "recipes": recipes,
-        "tmp_dir": tmp_path
+        "input_dir": input_dir,
+        "output_dir": output_dir,
+        "tmp_path": tmp_path
     }
 
 
 class TestBatchConvert(unittest.TestCase):
-    """Test cases for the batch_convert.py script."""
-
+    """Test cases for the batch conversion functionality."""
+    
     def setUp(self):
-        """Set up temporary directories for testing."""
-        # Create temporary directories for testing
+        """Set up test environment with multiple recipe files."""
+        # Create temporary directories
         self.temp_dir = tempfile.mkdtemp()
         self.input_dir = os.path.join(self.temp_dir, "input")
         self.output_dir = os.path.join(self.temp_dir, "output")
         os.makedirs(self.input_dir, exist_ok=True)
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Create sample recipe files
+        # Create multiple sample recipe files
         for i in range(3):
             recipe = {
-                "name": f"Test Recipe {i+1}",
+                "name": f"Recipe {i+1}",
                 "ingredients": [
                     {
                         "order": 0,
                         "ingredient": {"name": f"Ingredient {i+1}"},
-                        "quantity": {"amount": i+1, "quantityType": "cup"}
+                        "quantity": {"amount": 1, "quantityType": "cup"}
                     }
                 ],
                 "steps": [
@@ -103,15 +106,15 @@ class TestBatchConvert(unittest.TestCase):
             recipe_path = os.path.join(self.input_dir, f"recipe_{i+1}.crumb")
             with open(recipe_path, "w", encoding="utf-8") as f:
                 json.dump(recipe, f)
-
+    
     def tearDown(self):
         """Clean up temporary directories after testing."""
         shutil.rmtree(self.temp_dir)
-
-    def test_find_crumb_files(self):
-        """Test finding .crumb files in a directory."""
+    
+    def test_find_recipe_files(self):
+        """Test finding recipe files in a directory."""
         # Non-recursive search
-        files = batch_convert.find_crumb_files(self.input_dir, recursive=False)
+        files = batch.find_recipe_files(self.input_dir, recursive=False, extensions=["crumb"])
         self.assertEqual(len(files), 3)
         
         # Create a subdirectory with another file
@@ -121,100 +124,100 @@ class TestBatchConvert(unittest.TestCase):
             f.write("{}")
         
         # Non-recursive should still find only 3
-        files = batch_convert.find_crumb_files(self.input_dir, recursive=False)
+        files = batch.find_recipe_files(self.input_dir, recursive=False, extensions=["crumb"])
         self.assertEqual(len(files), 3)
         
         # Recursive should find 4
-        files = batch_convert.find_crumb_files(self.input_dir, recursive=True)
+        files = batch.find_recipe_files(self.input_dir, recursive=True, extensions=["crumb"])
         self.assertEqual(len(files), 4)
-
+    
     @mock.patch("subprocess.run")
     def test_convert_file(self, mock_run):
         """Test converting a single file."""
         # Set up the mock subprocess.run to return success
-        mock_run.return_value = mock.Mock(stdout="Success", stderr="")
+        mock_process = mock.Mock()
+        mock_process.returncode = 0
+        mock_process.stdout = "Converted successfully"
+        mock_process.stderr = ""
+        mock_run.return_value = mock_process
         
         # Test successful conversion
-        success, file_path, output = batch_convert.convert_file(
+        success, file_path, output = batch.convert_file(
             os.path.join(self.input_dir, "recipe_1.crumb"),
             self.output_dir,
-            "crumb_to_md.py"
+            use_subprocess=True
         )
         
         self.assertTrue(success)
-        self.assertEqual(output, "Success")
+        self.assertEqual(output, "Converted successfully")
         
-        # Verify subprocess.run was called with the correct arguments
-        mock_run.assert_called_once_with(
-            ["python3", "crumb_to_md.py", "-f", os.path.join(self.input_dir, "recipe_1.crumb"), "-o", self.output_dir],
-            capture_output=True, text=True, check=True
-        )
+        # Test failed conversion with a proper CommandError
+        error_message = "Error processing file"
+        mock_process = mock.Mock()
+        mock_process.returncode = 1
+        mock_process.stderr = error_message
+        mock_run.return_value = mock_process
+        mock_run.side_effect = None  # Remove previous side effect
         
-        # Test failure
-        mock_run.reset_mock()
-        mock_run.side_effect = subprocess.CalledProcessError(1, [], stderr="Error")
-        
-        success, file_path, output = batch_convert.convert_file(
+        success, file_path, output = batch.convert_file(
             os.path.join(self.input_dir, "recipe_1.crumb"),
             self.output_dir,
-            "crumb_to_md.py"
+            use_subprocess=True
         )
         
         self.assertFalse(success)
-        self.assertEqual(output, "Error")
+        self.assertEqual(output, error_message)
 
 
-def test_process_files_with_pytest(mock_recipe_directory):
-    """Test processing multiple files with pytest fixtures."""
-    output_dir = mock_recipe_directory["tmp_dir"] / "output"
-    output_dir.mkdir()
+def test_batch_convert_with_pytest(mock_recipe_directory):
+    """Test batch conversion using pytest fixtures."""
+    input_dir = mock_recipe_directory["input_dir"]
+    output_dir = mock_recipe_directory["output_dir"]
     
-    # Create a mock converter script for testing
-    converter_script = mock_recipe_directory["tmp_dir"] / "mock_converter.py"
+    # Run batch conversion
+    results = batch.batch_convert(
+        input_dir=str(input_dir),
+        output_dir=str(output_dir),
+        recursive=False,
+        max_workers=2,
+        use_subprocess=False,
+        extensions=["crumb"]
+    )
     
-    # Use mocking to avoid actually running the subprocess
-    with mock.patch("subprocess.run") as mock_run:
-        mock_run.return_value = mock.Mock(stdout="Success", stderr="")
-        
-        # Get the list of files
-        crumb_files = [str(recipe["path"]) for recipe in mock_recipe_directory["recipes"]]
-        
-        # Process the files
-        success_count, error_count = batch_convert.process_files(
-            crumb_files, 
-            str(output_dir), 
-            str(converter_script), 
-            max_workers=2
-        )
-        
-        # Check the results
-        assert success_count == 3
-        assert error_count == 0
-        assert mock_run.call_count == 3
+    # Check that all files were processed
+    assert len(results) == 3
+    # Check that all conversions were successful
+    assert all(result[0] for result in results)
+    
+    # Check output directory has the converted files
+    output_files = list(output_dir.glob("*.md"))
+    assert len(output_files) == 3
 
 
-def test_main_function(mock_recipe_directory):
-    """Test the main function with mocked arguments."""
-    with mock.patch("argparse.ArgumentParser.parse_args") as mock_args:
-        # Mock the arguments
-        mock_args.return_value = mock.Mock(
-            input=str(mock_recipe_directory["path"]),
-            output=str(mock_recipe_directory["tmp_dir"] / "output"),
-            recursive=False,
-            parallel=2
-        )
-        
-        # Mock the actual conversion to avoid subprocess calls
-        with mock.patch("batch_convert.process_files") as mock_process:
-            mock_process.return_value = (3, 0)  # 3 successful, 0 errors
-            
-            # Run the main function
-            batch_convert.main()
-            
-            # Check that process_files was called with the correct arguments
-            mock_process.assert_called_once()
-            
-            # First argument should be the list of crumb files
-            args, kwargs = mock_process.call_args
-            assert len(args[0]) == 3  # Should find 3 files
-            assert kwargs["max_workers"] == 2 
+@mock.patch("cookdown.batch.batch_convert")
+@mock.patch("cookdown.batch.argparse.ArgumentParser.parse_args")
+def test_main_function(mock_parse_args, mock_batch_convert):
+    """Test the main function."""
+    # Set up the mock args
+    mock_args = mock.Mock()
+    mock_args.input = None
+    mock_args.output = None
+    mock_args.recursive = False
+    mock_args.parallel = 4
+    mock_args.subprocess = False
+    mock_args.extensions = None
+    mock_args.list_formats = False
+    mock_parse_args.return_value = mock_args
+    
+    # Set up the batch_convert mock
+    mock_batch_convert.return_value = [
+        (True, "file1.crumb", "output1"), 
+        (True, "file2.crumb", "output2"), 
+        (True, "file3.crumb", "output3")
+    ]
+    
+    # Run the main function
+    batch.main()
+    
+    # Check that batch_convert was called
+    mock_batch_convert.assert_called_once() 

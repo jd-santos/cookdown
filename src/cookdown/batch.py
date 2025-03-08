@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Batch converter for Crouton .crumb files to Obsidian markdown format.
+Batch converter for recipe files to Obsidian markdown format.
 
-This module provides functionality to process multiple .crumb files in parallel,
-either in a single directory or recursively through subdirectories.
+This module provides functionality to process multiple recipe files in parallel,
+from different formats to Obsidian markdown format.
 """
 
 import os
@@ -14,34 +14,53 @@ import concurrent.futures
 import sys
 from pathlib import Path
 
-from cookdown import convert
+from cookdown.parsers import get_parser_for_extension, get_supported_extensions
+from cookdown.formatter import convert_to_markdown
+from cookdown.convert import find_input_directory, find_output_directory
 
 
-def find_crumb_files(input_dir, recursive=False):
+def find_recipe_files(input_dir, recursive=False, extensions=None):
     """
-    Find all .crumb files in the input directory.
+    Find all recipe files in the input directory with supported extensions.
     
     Args:
         input_dir: Directory to search in
         recursive: Whether to search recursively in subdirectories
+        extensions: List of file extensions to search for (without dots)
         
     Returns:
-        List of paths to .crumb files
+        List of paths to recipe files
     """
-    if recursive:
-        # Use glob pattern for recursive search
-        return glob.glob(os.path.join(input_dir, "**", "*.crumb"), recursive=True)
-    else:
-        # Non-recursive search in just the input directory
-        return glob.glob(os.path.join(input_dir, "*.crumb"))
+    # Get list of supported extensions if not provided
+    if extensions is None:
+        extensions = get_supported_extensions()
+    
+    all_files = []
+    
+    for ext in extensions:
+        if recursive:
+            # Use glob pattern for recursive search
+            pattern = os.path.join(input_dir, "**", f"*.{ext}")
+            all_files.extend(glob.glob(pattern, recursive=True))
+        else:
+            # Non-recursive search in just the input directory
+            pattern = os.path.join(input_dir, f"*.{ext}")
+            all_files.extend(glob.glob(pattern))
+    
+    return all_files
 
 
-def convert_file(crumb_file, output_dir, use_subprocess=True, converter_script=None):
+def convert_file(
+    recipe_file, 
+    output_dir, 
+    use_subprocess=False, 
+    converter_script=None
+):
     """
-    Convert a single .crumb file using either direct function call or subprocess.
+    Convert a single recipe file using either direct function call or subprocess.
     
     Args:
-        crumb_file: Path to the .crumb file
+        recipe_file: Path to the recipe file
         output_dir: Directory to save the converted file
         use_subprocess: Whether to use subprocess or direct function call
         converter_script: Path to the converter script (if using subprocess)
@@ -49,173 +68,205 @@ def convert_file(crumb_file, output_dir, use_subprocess=True, converter_script=N
     Returns:
         Tuple of (success, file_path, output)
     """
-    if use_subprocess and converter_script:
-        try:
+    try:
+        if use_subprocess:
             # Use subprocess to call the converter script
-            cmd = [sys.executable, converter_script, "-f", crumb_file, "-o", output_dir]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-            return True, crumb_file, result.stdout
-        except subprocess.CalledProcessError as e:
-            return False, crumb_file, e.stderr
-    else:
-        # Direct function call
-        try:
-            convert.convert_crumb_to_md(crumb_file, output_dir)
-            return True, crumb_file, f"Converted {crumb_file} to {output_dir}"
-        except Exception as e:
-            return False, crumb_file, str(e)
+            if converter_script is None:
+                # Default to the cli entry point
+                converter_script = [sys.executable, "-m", "cookdown.convert"]
+            else:
+                # Use the specified script
+                converter_script = [sys.executable, converter_script]
+            
+            # Build the command
+            cmd = converter_script + ["-f", recipe_file, "-o", output_dir]
+            
+            # Run the command
+            result = subprocess.run(
+                cmd, 
+                capture_output=True, 
+                text=True, 
+                check=False
+            )
+            
+            # Check for errors
+            if result.returncode != 0:
+                return (False, recipe_file, result.stderr)
+            
+            return (True, recipe_file, result.stdout)
+        else:
+            # Use direct function call
+            # Get the file extension to determine the parser
+            extension = os.path.splitext(recipe_file)[1][1:].lower()
+            parser_class = get_parser_for_extension(extension)
+            
+            if parser_class is None:
+                return (
+                    False, 
+                    recipe_file, 
+                    f"No parser found for extension: {extension}"
+                )
+            
+            # Convert the file
+            output_path = convert_to_markdown(recipe_file, output_dir, parser_class)
+            return (True, recipe_file, f"Converted to {output_path}")
+    
+    except Exception as e:
+        # Handle any exceptions
+        return (False, recipe_file, str(e))
 
 
-def process_files(crumb_files, output_dir, converter_script=None, max_workers=None, use_subprocess=False):
+def batch_convert(
+    input_dir=None,
+    output_dir=None,
+    recursive=False,
+    max_workers=4,
+    use_subprocess=False,
+    converter_script=None,
+    extensions=None
+):
     """
-    Process multiple .crumb files using thread pool for parallel execution.
+    Convert multiple recipe files in parallel.
     
     Args:
-        crumb_files: List of paths to .crumb files
+        input_dir: Directory containing recipe files
         output_dir: Directory to save converted files
-        converter_script: Path to the converter script (if using subprocess)
-        max_workers: Maximum number of parallel workers
-        use_subprocess: Whether to use subprocess or direct function call
+        recursive: Whether to search recursively for files
+        max_workers: Maximum number of parallel conversions
+        use_subprocess: Whether to use subprocess for conversion
+        converter_script: Path to converter script if using subprocess
+        extensions: List of extensions to process (default: all supported)
         
     Returns:
-        Tuple of (success_count, error_count)
+        List of (success, file_path, output) tuples
     """
-    success_count = 0
-    error_count = 0
-
-    print(f"Processing {len(crumb_files)} file(s)...")
-
+    # Use default directories if not specified
+    if input_dir is None:
+        input_dir = find_input_directory()
+    
+    if output_dir is None:
+        output_dir = find_output_directory()
+    
+    # Find all recipe files with supported extensions
+    recipe_files = find_recipe_files(input_dir, recursive, extensions)
+    
+    if not recipe_files:
+        supported = ", ".join(get_supported_extensions() if extensions is None else extensions)
+        print(f"No recipe files found in {input_dir}")
+        print(f"Supported extensions: {supported}")
+        return []
+    
+    # Convert files in parallel
+    results = []
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(convert_file, crumb_file, output_dir, use_subprocess, converter_script)
-            for crumb_file in crumb_files
-        ]
-
-        for future in concurrent.futures.as_completed(futures):
-            success, file_path, message = future.result()
-            if success:
-                print(f"✓ Converted: {os.path.basename(file_path)}")
-                success_count += 1
-            else:
-                print(f"✗ Error processing {os.path.basename(file_path)}: {message}")
-                error_count += 1
-
-    return success_count, error_count
-
-
-def find_converter_script():
-    """
-    Find the convert.py script location.
-    
-    Returns:
-        Path to the convert.py script
-    """
-    # First check if we're running from the installed package
-    try:
-        import cookdown
-        package_dir = os.path.dirname(os.path.abspath(cookdown.__file__))
-        script_path = os.path.join(package_dir, "convert.py")
-        if os.path.exists(script_path):
-            return script_path
-    except ImportError:
-        pass
-    
-    # Otherwise look for it relative to this script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    script_path = os.path.join(script_dir, "convert.py")
-    
-    # If not found, try in the current directory
-    if not os.path.exists(script_path):
-        script_path = os.path.join(os.getcwd(), "convert.py")
+        # Submit all conversion tasks
+        future_to_file = {
+            executor.submit(
+                convert_file, 
+                recipe_file, 
+                output_dir, 
+                use_subprocess, 
+                converter_script
+            ): recipe_file 
+            for recipe_file in recipe_files
+        }
         
-    # If still not found, try the old name in the current directory
-    if not os.path.exists(script_path):
-        script_path = os.path.join(os.getcwd(), "crumb_to_md.py")
+        # Process the results as they complete
+        for future in concurrent.futures.as_completed(future_to_file):
+            file_path = future_to_file[future]
+            
+            try:
+                result = future.result()
+                results.append(result)
+                
+                # Print status
+                success, _, output = result
+                if success:
+                    print(f"✓ {file_path}: {output}")
+                else:
+                    print(f"✗ {file_path}: {output}")
+                
+            except Exception as e:
+                print(f"✗ {file_path}: Exception: {e}")
+                results.append((False, file_path, str(e)))
     
-    return script_path if os.path.exists(script_path) else None
-
-
-def parse_args():
-    """
-    Parse command-line arguments.
-    
-    Returns:
-        Parsed arguments object
-    """
-    parser = argparse.ArgumentParser(
-        description="Batch convert Crouton .crumb files to Obsidian markdown format."
-    )
-    parser.add_argument(
-        "-i",
-        "--input",
-        default=None,
-        help="Input directory containing .crumb files. Defaults to 'data/input' subdirectory.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default=None,
-        help="Output directory for markdown files. Defaults to 'data/output' subdirectory.",
-    )
-    parser.add_argument(
-        "-r",
-        "--recursive",
-        action="store_true",
-        help="Search recursively for .crumb files in input directory.",
-    )
-    parser.add_argument(
-        "-p",
-        "--parallel",
-        type=int,
-        default=4,
-        help="Maximum number of parallel conversions. Default is 4.",
-    )
-    parser.add_argument(
-        "-s",
-        "--subprocess",
-        action="store_true",
-        help="Use subprocess to call the converter script instead of direct function call.",
-    )
-    return parser.parse_args()
+    return results
 
 
 def main():
-    """Main function to batch process .crumb files."""
-    args = parse_args()
-
-    # Get appropriate directories
-    input_dir = args.input if args.input else convert.find_input_directory()
-    output_dir = args.output if args.output else convert.find_output_directory()
-
-    # Ensure output directory exists
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Find the converter script if using subprocess
-    converter_script = None
-    if args.subprocess:
-        converter_script = find_converter_script()
-        if not converter_script:
-            print("Error: Converter script not found.")
-            return
-
-    # Find all .crumb files
-    crumb_files = find_crumb_files(input_dir, args.recursive)
-
-    if not crumb_files:
-        print(f"No .crumb files found in {input_dir}")
-        return
-
-    # Process the files
-    success_count, error_count = process_files(
-        crumb_files, output_dir, converter_script, args.parallel, args.subprocess
+    """Command-line entry point for the batch converter."""
+    parser = argparse.ArgumentParser(
+        description="Batch convert recipe files to Obsidian markdown."
     )
-
+    parser.add_argument(
+        "-i", "--input", 
+        help="Input directory containing recipe files (defaults to 'data/input' subdirectory)"
+    )
+    parser.add_argument(
+        "-o", "--output", 
+        help="Output directory for markdown files (defaults to 'data/output' subdirectory)"
+    )
+    parser.add_argument(
+        "-r", "--recursive", 
+        action="store_true", 
+        help="Search recursively for recipe files in input directory"
+    )
+    parser.add_argument(
+        "-p", "--parallel",
+        type=int,
+        default=4,
+        help="Maximum number of parallel conversions (default is 4)"
+    )
+    parser.add_argument(
+        "-s", "--subprocess",
+        action="store_true",
+        help="Use subprocess to call the converter script instead of direct function call"
+    )
+    parser.add_argument(
+        "-e", "--extensions",
+        nargs="+",
+        help="List of file extensions to process (default: all supported extensions)"
+    )
+    parser.add_argument(
+        "-l", "--list-formats", 
+        action="store_true",
+        help="List supported file formats"
+    )
+    
+    args = parser.parse_args()
+    
+    # List supported formats if requested
+    if args.list_formats:
+        extensions = get_supported_extensions()
+        print("Supported recipe file formats:")
+        for ext in sorted(extensions):
+            print(f"  .{ext}")
+        return
+    
+    # Run the batch conversion
+    results = batch_convert(
+        input_dir=args.input,
+        output_dir=args.output,
+        recursive=args.recursive,
+        max_workers=args.parallel,
+        use_subprocess=args.subprocess,
+        extensions=args.extensions
+    )
+    
     # Print summary
-    print(f"\nConversion Summary:")
-    print(f"  Total: {len(crumb_files)}")
-    print(f"  Successful: {success_count}")
-    print(f"  Failed: {error_count}")
-    print(f"\nOutput saved to: {output_dir}")
+    success_count = sum(1 for r in results if r[0])
+    error_count = len(results) - success_count
+    
+    print("\nBatch conversion complete!")
+    print(f"Successfully converted: {success_count}")
+    print(f"Errors: {error_count}")
+    
+    if error_count > 0:
+        print("\nFiles with errors:")
+        for result in results:
+            if not result[0]:
+                print(f"  {result[1]}: {result[2]}")
 
 
 if __name__ == "__main__":
