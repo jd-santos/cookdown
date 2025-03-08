@@ -167,7 +167,7 @@ def convert_to_markdown(
         
         # Create YAML frontmatter
         frontmatter = {
-            "food-labels": "",  # Empty by default
+            "food-labels": metadata.get("tags", []),  # Use tags from metadata
             "created": datetime.now().strftime("%Y-%m-%d"),
             "updated": datetime.now().strftime("%Y-%m-%d"),
             "tags": ["food/recipe"],

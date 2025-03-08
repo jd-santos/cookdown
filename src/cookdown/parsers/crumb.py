@@ -160,6 +160,7 @@ class CrumbParser(RecipeParser):
             "total_time": f"{recipe_data.get('prepDuration', 0) + recipe_data.get('cookingDuration', 0)} minutes",
             "rating": recipe_data.get("rating", 0),
             "difficulty": "",  # Not directly available in .crumb format
+            "tags": recipe_data.get("tags", []),  # Extract tags from the recipe data
         }
 
 

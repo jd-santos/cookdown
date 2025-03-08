@@ -12,7 +12,9 @@ import argparse
 import subprocess
 import concurrent.futures
 import sys
+import time
 from pathlib import Path
+from datetime import datetime
 
 from cookdown.parsers import get_parser_for_extension, get_supported_extensions
 from cookdown.formatter import convert_to_markdown
@@ -66,8 +68,11 @@ def convert_file(
         converter_script: Path to the converter script (if using subprocess)
         
     Returns:
-        Tuple of (success, file_path, output)
+        Tuple of (success, file_path, output, conversion_time)
     """
+    # Start timing the file conversion
+    file_start_time = time.time()
+    
     try:
         if use_subprocess:
             # Use subprocess to call the converter script
@@ -89,11 +94,14 @@ def convert_file(
                 check=False
             )
             
+            # Calculate conversion time
+            conversion_time = time.time() - file_start_time
+            
             # Check for errors
             if result.returncode != 0:
-                return (False, recipe_file, result.stderr)
+                return (False, recipe_file, result.stderr, conversion_time)
             
-            return (True, recipe_file, result.stdout)
+            return (True, recipe_file, result.stdout, conversion_time)
         else:
             # Use direct function call
             # Get the file extension to determine the parser
@@ -101,19 +109,26 @@ def convert_file(
             parser_class = get_parser_for_extension(extension)
             
             if parser_class is None:
+                conversion_time = time.time() - file_start_time
                 return (
                     False, 
                     recipe_file, 
-                    f"No parser found for extension: {extension}"
+                    f"No parser found for extension: {extension}",
+                    conversion_time
                 )
             
             # Convert the file
             output_path = convert_to_markdown(recipe_file, output_dir, parser_class)
-            return (True, recipe_file, f"Converted to {output_path}")
+            
+            # Calculate conversion time
+            conversion_time = time.time() - file_start_time
+            
+            return (True, recipe_file, f"Converted to {output_path}", conversion_time)
     
     except Exception as e:
         # Handle any exceptions
-        return (False, recipe_file, str(e))
+        conversion_time = time.time() - file_start_time
+        return (False, recipe_file, str(e), conversion_time)
 
 
 def batch_convert(
@@ -138,8 +153,11 @@ def batch_convert(
         extensions: List of extensions to process (default: all supported)
         
     Returns:
-        List of (success, file_path, output) tuples
+        List of (success, file_path, output, conversion_time) tuples
     """
+    # Start timing the process
+    start_time = time.time()
+    
     # Use default directories if not specified
     if input_dir is None:
         input_dir = find_input_directory()
@@ -156,8 +174,21 @@ def batch_convert(
         print(f"Supported extensions: {supported}")
         return []
     
+    # Print batch conversion starting information
+    total_files = len(recipe_files)
+    print(f"\n=== Starting batch conversion of {total_files} recipes ===")
+    print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Input directory: {input_dir}")
+    print(f"Output directory: {output_dir}")
+    print(f"Using {max_workers} workers for parallel processing\n")
+    
     # Convert files in parallel
     results = []
+    successful_conversions = 0
+    failed_conversions = 0
+    total_conversion_time = 0.0
+    min_conversion_time = float('inf')
+    max_conversion_time = 0.0
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all conversion tasks
@@ -180,16 +211,56 @@ def batch_convert(
                 result = future.result()
                 results.append(result)
                 
-                # Print status
-                success, _, output = result
+                # Extract results with conversion_time
+                success, _, output, conversion_time = result
+                
+                # Update time statistics
+                total_conversion_time += conversion_time
+                min_conversion_time = min(min_conversion_time, conversion_time)
+                max_conversion_time = max(max_conversion_time, conversion_time)
+                
+                # Print status on a new line with clear indicators
                 if success:
-                    print(f"✓ {file_path}: {output}")
+                    successful_conversions += 1
+                    print(f"✓ {file_path}")
+                    print(f"  └─ {output}")
+                    print(f"  └─ Conversion time: {conversion_time:.4f} seconds\n")
                 else:
-                    print(f"✗ {file_path}: {output}")
+                    failed_conversions += 1
+                    print(f"✗ {file_path}")
+                    print(f"  └─ Error: {output}")
+                    print(f"  └─ Conversion time: {conversion_time:.4f} seconds\n")
                 
             except Exception as e:
-                print(f"✗ {file_path}: Exception: {e}")
-                results.append((False, file_path, str(e)))
+                failed_conversions += 1
+                print(f"✗ {file_path}")
+                print(f"  └─ Exception: {e}\n")
+                results.append((False, file_path, str(e), 0.0))
+    
+    # Calculate performance metrics
+    end_time = time.time()
+    total_time = end_time - start_time
+    avg_time_per_file = total_time / total_files if total_files > 0 else 0
+    avg_conversion_time = total_conversion_time / total_files if total_files > 0 else 0
+    min_conversion_time = min_conversion_time if min_conversion_time != float('inf') else 0
+    
+    # Print summary with performance metrics
+    print("\n=== Batch Conversion Summary ===")
+    print(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total files processed: {total_files}")
+    print(f"Successful conversions: {successful_conversions}")
+    print(f"Failed conversions: {failed_conversions}")
+    print(f"Success rate: {(successful_conversions / total_files * 100):.2f}%" if total_files > 0 else "N/A")
+    print("\nTiming Statistics:")
+    print(f"Total execution time: {total_time:.2f} seconds")
+    print(f"Total conversion time: {total_conversion_time:.2f} seconds")
+    print(f"Average time per file: {avg_time_per_file:.4f} seconds (wall clock)")
+    print(f"Average conversion time: {avg_conversion_time:.4f} seconds (CPU time)")
+    print(f"Minimum conversion time: {min_conversion_time:.4f} seconds")
+    print(f"Maximum conversion time: {max_conversion_time:.4f} seconds")
+    print(f"Processing rate: {(total_files / total_time):.2f} files/second" if total_time > 0 else "N/A")
+    print(f"Parallelization efficiency: {(total_conversion_time / total_time * 100):.2f}%" if total_time > 0 else "N/A")
+    print("===============================\n")
     
     return results
 
