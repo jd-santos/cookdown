@@ -19,7 +19,6 @@ dist/
 build/
 
 # Project specific
-output/
 data/output/
 */images/
 

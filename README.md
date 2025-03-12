@@ -238,7 +238,7 @@ The standalone `extract_paprika.py` script provides a way to extract these forma
 
 Both the PaprikaParser and the extract_paprika.py script are comprehensively tested with dedicated test files (test_paprika.py and test_paprika_batch.py).
 
-### Data Flow Diagram
+### Data Flow 
 
 ```
 Input Recipe File (.crumb, .paprikarecipe, .paprikarecipes, etc.)
