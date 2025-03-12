@@ -44,6 +44,7 @@ def get_supported_extensions() -> List[str]:
 
 # Import all parsers to register them
 from .crumb import CrumbParser
+from .paprika import PaprikaParser
 
 # This makes the imports available directly from the parsers module
 __all__ = [
@@ -52,4 +53,5 @@ __all__ = [
     'get_parser_for_extension',
     'get_supported_extensions',
     'CrumbParser',
+    'PaprikaParser',
 ] 

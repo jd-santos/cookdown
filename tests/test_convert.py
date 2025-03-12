@@ -9,128 +9,136 @@ import os
 import json
 import shutil
 import tempfile
-import unittest
-from pathlib import Path
-
 import pytest
+from pathlib import Path
 
 from cookdown import convert, formatter
 from cookdown.parsers import crumb
 
 
-class TestConvert(unittest.TestCase):
-    """Test cases for the conversion functionality."""
+@pytest.fixture
+def sample_recipe_setup():
+    """Set up test environment with sample recipe data."""
+    # Create temporary directories
+    temp_dir = tempfile.mkdtemp()
+    input_dir = os.path.join(temp_dir, "input")
+    output_dir = os.path.join(temp_dir, "output")
+    os.makedirs(input_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     
-    def setUp(self):
-        """Set up test environment with sample recipe data."""
-        # Create temporary directories
-        self.temp_dir = tempfile.mkdtemp()
-        self.input_dir = os.path.join(self.temp_dir, "input")
-        self.output_dir = os.path.join(self.temp_dir, "output")
-        os.makedirs(self.input_dir, exist_ok=True)
-        os.makedirs(self.output_dir, exist_ok=True)
-        
-        # Create sample recipe data
-        self.sample_recipe = {
-            "name": "Test Recipe",
-            "ingredients": [
-                {
-                    "order": 1,
-                    "ingredient": {"name": "flour"},
-                    "quantity": {"amount": 2, "quantityType": "cup"}
-                },
-                {
-                    "order": 2,
-                    "ingredient": {"name": "sugar"},
-                    "quantity": {"amount": 1, "quantityType": "tablespoon"}
-                }
-            ],
-            "steps": [
-                {
-                    "order": 1,
-                    "step": "**Preparation**",
-                    "isSection": True
-                },
-                {
-                    "order": 2,
-                    "step": "Mix the ingredients",
-                    "isSection": False
-                },
-                {
-                    "order": 3,
-                    "step": "Bake at 350°F for 30 minutes",
-                    "isSection": False
-                }
-            ],
-            "notes": "This is a test recipe.",
-            "neutritionalInfo": "Test nutrition info",
-            "webLink": "https://example.com/test",
-            "cookingDuration": 30,
-            "serves": 2,
-            "images": []
-        }
-        
-        self.sample_recipe_path = os.path.join(self.input_dir, "test_recipe.crumb")
-        with open(self.sample_recipe_path, "w", encoding="utf-8") as f:
-            json.dump(self.sample_recipe, f)
+    # Create sample recipe data
+    sample_recipe = {
+        "name": "Test Recipe",
+        "ingredients": [
+            {
+                "order": 1,
+                "ingredient": {"name": "flour"},
+                "quantity": {"amount": 2, "quantityType": "cup"}
+            },
+            {
+                "order": 2,
+                "ingredient": {"name": "sugar"},
+                "quantity": {"amount": 1, "quantityType": "tablespoon"}
+            }
+        ],
+        "steps": [
+            {
+                "order": 1,
+                "step": "**Preparation**",
+                "isSection": True
+            },
+            {
+                "order": 2,
+                "step": "Mix the ingredients",
+                "isSection": False
+            },
+            {
+                "order": 3,
+                "step": "Bake at 350°F for 30 minutes",
+                "isSection": False
+            }
+        ],
+        "notes": "This is a test recipe.",
+        "neutritionalInfo": "Test nutrition info",
+        "webLink": "https://example.com/test",
+        "cookingDuration": 30,
+        "serves": 2,
+        "images": []
+    }
     
-    def tearDown(self):
-        """Clean up temporary directories after testing."""
-        shutil.rmtree(self.temp_dir)
+    sample_recipe_path = os.path.join(input_dir, "test_recipe.crumb")
+    with open(sample_recipe_path, "w", encoding="utf-8") as f:
+        json.dump(sample_recipe, f)
+    
+    # Return test data to the test function
+    yield {
+        "temp_dir": temp_dir,
+        "input_dir": input_dir,
+        "output_dir": output_dir,
+        "sample_recipe": sample_recipe,
+        "sample_recipe_path": sample_recipe_path
+    }
+    
+    # Clean up after test
+    shutil.rmtree(temp_dir)
 
-    def test_read_crumb_file(self):
-        """Test reading a .crumb file."""
-        result = crumb.CrumbParser.parse_file(self.sample_recipe_path)
-        self.assertEqual(result["name"], "Test Recipe")
-        self.assertEqual(len(result["ingredients"]), 2)
 
-    def test_format_ingredients(self):
-        """Test formatting ingredients."""
-        normalized_ingredients = crumb.CrumbParser.get_ingredients(self.sample_recipe)
-        result = formatter.format_ingredients(normalized_ingredients)
-        
-        self.assertEqual(len(result), 2)
-        self.assertIn("2 cups flour", result)
-        self.assertIn("1 tablespoon sugar", result)
+def test_read_crumb_file(sample_recipe_setup):
+    """Test reading a .crumb file."""
+    result = crumb.CrumbParser.parse_file(sample_recipe_setup["sample_recipe_path"])
+    assert result["name"] == "Test Recipe"
+    assert len(result["ingredients"]) == 2
 
-    def test_format_steps(self):
-        """Test formatting recipe steps."""
-        normalized_instructions = crumb.CrumbParser.get_instructions(self.sample_recipe)
-        result = formatter.format_instructions(normalized_instructions)
-        
-        expected_lines = [
-            "### Preparation",
-            "1. Mix the ingredients",
-            "1. Bake at 350°F for 30 minutes"
-        ]
-        
-        for line in expected_lines:
-            self.assertIn(line, result)
 
-    def test_convert_crumb_to_md(self):
-        """Test converting a .crumb file to markdown."""
-        # Convert the test recipe
-        formatter.convert_to_markdown(
-            self.sample_recipe_path, 
-            self.output_dir,
-            crumb.CrumbParser
-        )
+def test_format_ingredients(sample_recipe_setup):
+    """Test formatting ingredients."""
+    normalized_ingredients = crumb.CrumbParser.get_ingredients(sample_recipe_setup["sample_recipe"])
+    result = formatter.format_ingredients(normalized_ingredients)
+    
+    assert len(result) == 2
+    assert "2 cups flour" in result
+    assert "1 tablespoon sugar" in result
+
+
+def test_format_steps(sample_recipe_setup):
+    """Test formatting recipe steps."""
+    normalized_instructions = crumb.CrumbParser.get_instructions(sample_recipe_setup["sample_recipe"])
+    result = formatter.format_instructions(normalized_instructions)
+    
+    expected_lines = [
+        "### Preparation",
+        "1. Mix the ingredients",
+        "1. Bake at 350°F for 30 minutes"
+    ]
+    
+    for line in expected_lines:
+        assert line in result
+
+
+def test_convert_crumb_to_md(sample_recipe_setup):
+    """Test converting a .crumb file to markdown."""
+    # Convert the test recipe
+    formatter.convert_to_markdown(
+        sample_recipe_setup["sample_recipe_path"], 
+        sample_recipe_setup["output_dir"],
+        crumb.CrumbParser
+    )
+    
+    # Check that the output file exists
+    expected_output = os.path.join(sample_recipe_setup["output_dir"], "Test_Recipe.md")
+    assert os.path.exists(expected_output)
+    
+    # Verify content of the output file
+    with open(expected_output, "r", encoding="utf-8") as f:
+        content = f.read()
         
-        # Check that the output file exists
-        expected_output = os.path.join(self.output_dir, "Test_Recipe.md")
-        self.assertTrue(os.path.exists(expected_output))
-        
-        # Verify content of the output file
-        with open(expected_output, "r", encoding="utf-8") as f:
-            content = f.read()
-            
-        # Check that important sections exist
-        self.assertIn("---", content)  # YAML frontmatter
-        self.assertIn("tags:", content)
-        self.assertIn("ingredients:", content)
-        self.assertIn("## Directions", content)
-        self.assertIn("Mix the ingredients", content)
-        self.assertIn("Bake at 350°F for 30 minutes", content)
+    # Check that important sections exist
+    assert "---" in content  # YAML frontmatter
+    assert "tags:" in content
+    assert "ingredients:" in content
+    assert "## Directions" in content
+    assert "Mix the ingredients" in content
+    assert "Bake at 350°F for 30 minutes" in content
 
 
 @pytest.fixture

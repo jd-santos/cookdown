@@ -9,12 +9,9 @@ import os
 import json
 import shutil
 import tempfile
-import unittest
-import subprocess
+import pytest
 from unittest import mock
 from pathlib import Path
-
-import pytest
 
 from cookdown import batch
 from cookdown.parsers import get_supported_extensions
@@ -65,108 +62,117 @@ def mock_recipe_directory(tmp_path):
     }
 
 
-class TestBatchConvert(unittest.TestCase):
-    """Test cases for the batch conversion functionality."""
+@pytest.fixture
+def test_files_setup():
+    """Set up test environment with multiple recipe files."""
+    # Create temporary directories
+    temp_dir = tempfile.mkdtemp()
+    input_dir = os.path.join(temp_dir, "input")
+    output_dir = os.path.join(temp_dir, "output")
+    os.makedirs(input_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     
-    def setUp(self):
-        """Set up test environment with multiple recipe files."""
-        # Create temporary directories
-        self.temp_dir = tempfile.mkdtemp()
-        self.input_dir = os.path.join(self.temp_dir, "input")
-        self.output_dir = os.path.join(self.temp_dir, "output")
-        os.makedirs(self.input_dir, exist_ok=True)
-        os.makedirs(self.output_dir, exist_ok=True)
+    # Create multiple sample recipe files
+    for i in range(3):
+        recipe = {
+            "name": f"Recipe {i+1}",
+            "ingredients": [
+                {
+                    "order": 0,
+                    "ingredient": {"name": f"Ingredient {i+1}"},
+                    "quantity": {"amount": 1, "quantityType": "cup"}
+                }
+            ],
+            "steps": [
+                {
+                    "order": 0,
+                    "step": f"Step {i+1}",
+                    "isSection": False
+                }
+            ],
+            "notes": f"Notes {i+1}",
+            "neutritionalInfo": "",
+            "webLink": "",
+            "cookingDuration": 30,
+            "serves": 2,
+            "images": []
+        }
         
-        # Create multiple sample recipe files
-        for i in range(3):
-            recipe = {
-                "name": f"Recipe {i+1}",
-                "ingredients": [
-                    {
-                        "order": 0,
-                        "ingredient": {"name": f"Ingredient {i+1}"},
-                        "quantity": {"amount": 1, "quantityType": "cup"}
-                    }
-                ],
-                "steps": [
-                    {
-                        "order": 0,
-                        "step": f"Step {i+1}",
-                        "isSection": False
-                    }
-                ],
-                "notes": f"Notes {i+1}",
-                "neutritionalInfo": "",
-                "webLink": "",
-                "cookingDuration": 30,
-                "serves": 2,
-                "images": []
-            }
-            
-            recipe_path = os.path.join(self.input_dir, f"recipe_{i+1}.crumb")
-            with open(recipe_path, "w", encoding="utf-8") as f:
-                json.dump(recipe, f)
+        recipe_path = os.path.join(input_dir, f"recipe_{i+1}.crumb")
+        with open(recipe_path, "w", encoding="utf-8") as f:
+            json.dump(recipe, f)
     
-    def tearDown(self):
-        """Clean up temporary directories after testing."""
-        shutil.rmtree(self.temp_dir)
+    # Yield the directories to the test
+    yield {
+        "temp_dir": temp_dir,
+        "input_dir": input_dir,
+        "output_dir": output_dir
+    }
     
-    def test_find_recipe_files(self):
-        """Test finding recipe files in a directory."""
-        # Non-recursive search
-        files = batch.find_recipe_files(self.input_dir, recursive=False, extensions=["crumb"])
-        self.assertEqual(len(files), 3)
-        
-        # Create a subdirectory with another file
-        subdir = os.path.join(self.input_dir, "subdir")
-        os.makedirs(subdir, exist_ok=True)
-        with open(os.path.join(subdir, "recipe_4.crumb"), "w", encoding="utf-8") as f:
-            f.write("{}")
-        
-        # Non-recursive should still find only 3
-        files = batch.find_recipe_files(self.input_dir, recursive=False, extensions=["crumb"])
-        self.assertEqual(len(files), 3)
-        
-        # Recursive should find 4
-        files = batch.find_recipe_files(self.input_dir, recursive=True, extensions=["crumb"])
-        self.assertEqual(len(files), 4)
+    # Clean up after the test (equivalent to tearDown)
+    shutil.rmtree(temp_dir)
+
+
+def test_find_recipe_files(test_files_setup):
+    """Test finding recipe files in a directory."""
+    input_dir = test_files_setup["input_dir"]
     
-    @mock.patch("subprocess.run")
-    def test_convert_file(self, mock_run):
-        """Test converting a single file."""
+    # Non-recursive search
+    files = batch.find_recipe_files(input_dir, recursive=False, extensions=["crumb"])
+    assert len(files) == 3
+    
+    # Create a subdirectory with another file
+    subdir = os.path.join(input_dir, "subdir")
+    os.makedirs(subdir, exist_ok=True)
+    with open(os.path.join(subdir, "recipe_4.crumb"), "w", encoding="utf-8") as f:
+        f.write("{}")
+    
+    # Non-recursive should still find only 3
+    files = batch.find_recipe_files(input_dir, recursive=False, extensions=["crumb"])
+    assert len(files) == 3
+    
+    # Recursive should find 4
+    files = batch.find_recipe_files(input_dir, recursive=True, extensions=["crumb"])
+    assert len(files) == 4
+
+
+@pytest.mark.parametrize("success_case", [True, False])
+@mock.patch("subprocess.run")
+def test_convert_file(mock_run, test_files_setup, success_case):
+    """Test converting a single file."""
+    input_dir = test_files_setup["input_dir"]
+    output_dir = test_files_setup["output_dir"]
+    
+    # Configure the mock based on success or failure case
+    mock_process = mock.Mock()
+    
+    if success_case:
         # Set up the mock subprocess.run to return success
-        mock_process = mock.Mock()
         mock_process.returncode = 0
         mock_process.stdout = "Converted successfully"
         mock_process.stderr = ""
-        mock_run.return_value = mock_process
-        
-        # Test successful conversion
-        success, file_path, output = batch.convert_file(
-            os.path.join(self.input_dir, "recipe_1.crumb"),
-            self.output_dir,
-            use_subprocess=True
-        )
-        
-        self.assertTrue(success)
-        self.assertEqual(output, "Converted successfully")
-        
+        expected_success = True
+        expected_output = "Converted successfully"
+    else:
         # Test failed conversion with a proper CommandError
         error_message = "Error processing file"
-        mock_process = mock.Mock()
         mock_process.returncode = 1
         mock_process.stderr = error_message
-        mock_run.return_value = mock_process
-        mock_run.side_effect = None  # Remove previous side effect
-        
-        success, file_path, output = batch.convert_file(
-            os.path.join(self.input_dir, "recipe_1.crumb"),
-            self.output_dir,
-            use_subprocess=True
-        )
-        
-        self.assertFalse(success)
-        self.assertEqual(output, error_message)
+        expected_success = False
+        expected_output = error_message
+    
+    mock_run.return_value = mock_process
+    
+    # Test conversion
+    success, file_path, output, conversion_time = batch.convert_file(
+        os.path.join(input_dir, "recipe_1.crumb"),
+        output_dir,
+        use_subprocess=True
+    )
+    
+    assert success == expected_success
+    assert output == expected_output
+    assert isinstance(conversion_time, float)  # Verify conversion time is returned
 
 
 def test_batch_convert_with_pytest(mock_recipe_directory):
